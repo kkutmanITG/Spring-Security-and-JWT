@@ -1,0 +1,17 @@
+spring:
+  application:
+    name: Spring Security and JWT
+  datasource:
+    url: jdbc:postgresql://localhost:5432/security_jwt
+    username: postgres
+    password: postgres
+  jpa:
+    hibernate:
+      ddl-auto: create
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+jwt:
+  secret: oMHAxMjlNnGZbVyjdqeqSVVEFaT/4t0YuazhtAw7LBw=
