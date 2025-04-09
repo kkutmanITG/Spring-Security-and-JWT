@@ -1,72 +1,87 @@
 package kg.security.auth.config.jwt;
 
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.Jws;
-import io.jsonwebtoken.SignatureAlgorithm;
-import io.jsonwebtoken.JwtException;
-import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.*;
+import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.security.Keys;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import javax.crypto.SecretKey;
 import java.util.Date;
 
+/**
+ * JwtUtil – Генерация и валидация JWT
+ * Это утилитный класс, который отвечает за:
+ * Создание (генерацию) JWT-токена.
+ * Проверку валидности токена (не истёк ли, не поддельный ли).
+ * Извлечение данных из токена (например, email пользователя).
+ */
+
+@Slf4j
 @Component
 public class JwtUtil {
 
     @Value("${jwt.secret}")
     private String secretKey;
 
-    private final long expirationTime = 1000 * 60 * 60;  // 1 час
+    @Value("${jwt.expiration}")
+    private long expirationTime;
+
+    private SecretKey getSignInKey() {
+        byte[] keyBytes = Decoders.BASE64.decode(secretKey);
+        return Keys.hmacShaKeyFor(keyBytes);
+    }
 
     // Генерация токена
     public String generateToken(String username) {
+        Date now = new Date();
+        Date expiryDate = new Date(now.getTime() + expirationTime);
+
         return Jwts.builder()
-                .setSubject(username)  // Субъект - это имя пользователя
-                .setIssuedAt(new Date())  // Время создания токена
-                .setExpiration(new Date(System.currentTimeMillis() + expirationTime))  // Время истечения токена
-                .signWith(SignatureAlgorithm.HS256, secretKey)  // Подписываем токен с использованием секретного ключа
-                .compact();  // Генерируем токен
+                .subject(username)
+                .issuedAt(now)
+                .expiration(expiryDate)
+                .signWith(getSignInKey())
+                .compact();
     }
 
     // Валидация токена
-    public boolean validateToken(String token, String username) {
+    public boolean validateToken(String token, String expectedUsername) {
         try {
-            String tokenUsername = getUsernameFromToken(token);
-            return (username.equals(tokenUsername)) && !isTokenExpired(token);
+            String username = getUsernameFromToken(token);
+            return username.equals(expectedUsername) && !isTokenExpired(token);
         } catch (ExpiredJwtException e) {
-            System.out.println("Токен истек: " + e.getMessage());
+            log.warn("JWT token expired: {}", e.getMessage());
         } catch (JwtException e) {
-            System.out.println("Ошибка JWT: " + e.getMessage());
+            log.warn("Invalid JWT token: {}", e.getMessage());
+        } catch (Exception e) {
+            log.error("Unexpected error during token validation", e);
         }
         return false;
     }
 
-    // Получение имени пользователя из токена
+    // Получение имени пользователя
     public String getUsernameFromToken(String token) {
-        Jws<Claims> claimsJws = Jwts.parser()
-                .setSigningKey(secretKey)
-                .build()
-                .parseClaimsJws(token);
-        return claimsJws.getBody().getSubject();  // Извлекаем имя пользователя
+        return parseClaims(token).getPayload().getSubject();
     }
 
-    // Проверка на истечение токена
+    // Получение даты истечения
+    public Date getExpirationDateFromToken(String token) {
+        return parseClaims(token).getPayload().getExpiration();
+    }
+
+    // Проверка на истечение
     private boolean isTokenExpired(String token) {
-        return true;
+        Date expiration = getExpirationDateFromToken(token);
+        return expiration.before(new Date());
     }
 
-//    // Получение даты истечения из токена
-//    public Date getExpirationDateFromToken(String token) {
-//        try {
-//            // Парсим токен и извлекаем информацию о дате истечения
-//            Jws<Claims> claimsJws = Jwts.parser()  // Используем Jwts.parser()
-//                    .setSigningKey(secretKey)  // Устанавливаем секретный ключ
-//                    .parseClaimsJws(token);  // Парсим токен
-//
-//            return claimsJws.getBody().getExpiration();  // Извлекаем дату истечения токена
-//        } catch (Exception e) {
-//            throw new IllegalArgumentException("Ошибка при извлечении даты истечения из токена", e);
-//        }
-//    }
+    // Разбор токена
+    private Jws<Claims> parseClaims(String token) {
+        return Jwts.parser()
+                .verifyWith(getSignInKey())
+                .build()
+                .parseSignedClaims(token);
+    }
 }
